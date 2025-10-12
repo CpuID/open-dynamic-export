@@ -11,6 +11,7 @@ import { type InverterConfiguration } from './inverterController.js';
 import { type Logger } from 'pino';
 import { SmaInverterDataPoller } from '../../inverter/sma/index.js';
 import { MqttInverterDataPoller } from '../../inverter/mqtt/index.js';
+import { SigenergyInverterDataPoller } from '../../inverter/sigenergy/index.js';
 
 export class InvertersPoller extends EventEmitter<{
     data: [DerSample];
@@ -36,6 +37,13 @@ export class InvertersPoller extends EventEmitter<{
                     case 'sunspec': {
                         return new SunSpecInverterDataPoller({
                             sunspecInverterConfig: inverterConfig,
+                            applyControl: config.inverterControl.enabled,
+                            inverterIndex: index,
+                        }).on('data', inverterOnData);
+                    }
+                    case 'sigenergy': {
+                        return new SigenergyInverterDataPoller({
+                            sigenergyInverterConfig: inverterConfig,
                             applyControl: config.inverterControl.enabled,
                             inverterIndex: index,
                         }).on('data', inverterOnData);

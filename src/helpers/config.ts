@@ -158,6 +158,12 @@ export const configSchema = z.object({
                     .describe('SunSpec inverter configuration'),
                 z
                     .object({
+                        type: z.literal('sigenergy'),
+                    })
+                    .merge(modbusSchema)
+                    .describe('Sigenergy inverter configuration'),
+                z
+                    .object({
                         type: z.literal('sma'),
                         model: z.literal('core1'),
                     })
