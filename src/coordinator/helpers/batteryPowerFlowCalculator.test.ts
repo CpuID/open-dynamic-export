@@ -565,6 +565,8 @@ describe('calculateBatteryPowerFlow', () => {
             expect(result.batteryMode).toBe('charge');
             expect(result.targetBatteryPowerWatts).toBe(3000);
             expect(result.targetExportWatts).toBe(0);
+            // targetSoc-driven grid charge is all grid
+            expect(result.gridChargeWatts).toBe(3000);
         });
 
         it('should cap grid charging at batteryGridChargingMaxWatts', () => {
@@ -1338,6 +1340,9 @@ describe('calculateBatteryPowerFlow', () => {
             expect(result.batteryMode).toBe('charge');
             expect(result.targetBatteryPowerWatts).toBe(5000);
             expect(result.targetExportWatts).toBe(0);
+            // the 4000 W grid component is what tells the inverter write to
+            // force the charge rather than merely permit it
+            expect(result.gridChargeWatts).toBe(4000);
         });
 
         it('should charge from PV only when grid charging is disabled', () => {
@@ -1366,6 +1371,8 @@ describe('calculateBatteryPowerFlow', () => {
             expect(result.batteryMode).toBe('charge');
             expect(result.targetBatteryPowerWatts).toBe(1000);
             expect(result.targetExportWatts).toBe(0);
+            // PV-only charge: no grid component, so the write stays a limit
+            expect(result.gridChargeWatts).toBe(0);
         });
 
         it('should charge from grid and let the grid cover load, not discharge, on a deficit', () => {

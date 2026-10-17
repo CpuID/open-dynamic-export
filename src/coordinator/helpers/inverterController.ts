@@ -79,6 +79,10 @@ export type BatteryControlConfiguration = {
     chargeRatePercent?: number | undefined;
     // Discharge rate cap as percentage (0-100) of WChaMax — optional user-configured limit
     dischargeRatePercent?: number | undefined;
+    // True when the charge target includes a grid component. The inverter must
+    // then be FORCED to charge at the target rate: a charge limit alone only
+    // permits charging, and the inverter's own logic charges from PV surplus only.
+    forceCharge?: boolean | undefined;
 };
 
 export type InverterConfiguration =
@@ -799,6 +803,7 @@ export function calculateInverterConfiguration({
                 activeInverterControlLimit.batteryChargeRatePercent?.value,
             dischargeRatePercent:
                 activeInverterControlLimit.batteryDischargeRatePercent?.value,
+            forceCharge: batteryFlowResult.gridChargeWatts > 0,
         };
 
         finalTargetSolarWatts = Math.min(

@@ -578,7 +578,19 @@ export function generateStorageModelWriteFromBatteryControl({
                     : targetPercent,
                 100,
             );
-            dischargePercent = 0;
+            // Mirror of the discharge case below. InWRte=X, OutWRte=0 is the
+            // window [0 discharge, X charge]: it only ALLOWS charging, and the
+            // inverter's own self-consumption logic then charges from PV
+            // surplus alone — a grid top-up never happens (observed on a
+            // Fronius Gen24: commanded 8800 W, ChaGriSet=1, charge tracked PV
+            // surplus exactly and the site never imported for it).
+            // A negative OutWRte means "minimum charge rate", so OutWRte =
+            // -InWRte collapses the window to a fixed point and forces the
+            // charge, drawing the shortfall from the grid. Only do this when
+            // the target actually has a grid component: a PV-only charge is
+            // better left as a limit, so a passing cloud does not turn into
+            // an import.
+            dischargePercent = batteryControl.forceCharge ? -chargePercent : 0;
             break;
         }
         case 'discharge': {

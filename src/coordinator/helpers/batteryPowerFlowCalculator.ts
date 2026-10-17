@@ -10,6 +10,12 @@ export type BatteryPowerFlowCalculation = {
     targetSolarWatts: number;
     // Battery operating mode
     batteryMode: 'charge' | 'discharge' | 'idle';
+    // Portion of a charge target that must come from the grid (0 when the
+    // charge is PV surplus only, or when not charging). A PV-only charge can
+    // be left to the inverter's own surplus logic; a grid component cannot —
+    // the inverter has to be told to charge at that rate. See
+    // generateStorageModelWriteFromBatteryControl.
+    gridChargeWatts: number;
 };
 
 export type BatteryPowerFlowInput = {
@@ -140,6 +146,7 @@ export function calculateBatteryPowerFlow(
 
     let targetBatteryPowerWatts = 0;
     let targetExportWatts = 0;
+    let gridChargeWatts = 0;
     let batteryMode: 'charge' | 'discharge' | 'idle' = 'idle';
 
     // Battery export target: how much battery discharge power to export to grid.
@@ -204,6 +211,7 @@ export function calculateBatteryPowerFlow(
             Math.max(0, maxChargePower - pvToBattery),
         );
         targetBatteryPowerWatts = pvToBattery + gridToBattery;
+        gridChargeWatts = gridToBattery;
         batteryMode = 'charge';
         // Export any PV surplus the battery did not absorb.
         targetExportWatts = Math.min(
@@ -295,6 +303,7 @@ export function calculateBatteryPowerFlow(
             );
 
             targetBatteryPowerWatts = gridChargePower;
+            gridChargeWatts = gridChargePower;
             batteryMode = 'charge';
             targetExportWatts = 0;
         } else if (gridChargingActive) {
@@ -312,6 +321,7 @@ export function calculateBatteryPowerFlow(
     const BATTERY_DEADBAND_WATTS = 50;
     if (Math.abs(targetBatteryPowerWatts) < BATTERY_DEADBAND_WATTS) {
         targetBatteryPowerWatts = 0;
+        gridChargeWatts = 0;
         batteryMode = 'idle';
     }
 
@@ -389,6 +399,7 @@ export function calculateBatteryPowerFlow(
         targetExportWatts,
         targetSolarWatts,
         batteryMode,
+        gridChargeWatts,
     };
 
     logger.trace({ result }, 'Battery power flow calculation result');

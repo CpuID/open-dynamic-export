@@ -681,6 +681,81 @@ describe('generateStorageModelWriteFromBatteryControl', () => {
         expect(result.OutWRte).toBe(0);
     });
 
+    it('should force the charge (OutWRte = -InWRte) when the target has a grid component', () => {
+        // 5000W out of 35840W WChaMax = 13.95% -> raw 1395.
+        // OutWRte = -InWRte collapses the window to a fixed point so the
+        // inverter charges at that rate from the grid, instead of only
+        // being allowed to charge from PV surplus.
+        const result = generateStorageModelWriteFromBatteryControl({
+            batteryControl: {
+                targetPowerWatts: 5000,
+                mode: 'charge',
+                forceCharge: true,
+            },
+            storageModel: baseStorageModel,
+        });
+
+        expect(result.InWRte).toBe(1395);
+        expect(result.OutWRte).toBe(-1395);
+        expect(result.StorCtl_Mod).toBe(
+            StorCtl_Mod.CHARGE | StorCtl_Mod.DISCHARGE,
+        );
+    });
+
+    it('should leave a PV-only charge as a limit (OutWRte = 0) when forceCharge is false', () => {
+        const result = generateStorageModelWriteFromBatteryControl({
+            batteryControl: {
+                targetPowerWatts: 5000,
+                mode: 'charge',
+                forceCharge: false,
+            },
+            storageModel: baseStorageModel,
+        });
+
+        expect(result.InWRte).toBe(1395);
+        expect(result.OutWRte).toBe(0);
+    });
+
+    it('should respect chargeRatePercent when forcing the charge', () => {
+        // target 5000W = 13.95%, capped to 10% -> raw 1000 both sides
+        const result = generateStorageModelWriteFromBatteryControl({
+            batteryControl: {
+                targetPowerWatts: 5000,
+                mode: 'charge',
+                chargeRatePercent: 10,
+                forceCharge: true,
+            },
+            storageModel: baseStorageModel,
+        });
+
+        expect(result.InWRte).toBe(1000);
+        expect(result.OutWRte).toBe(-1000);
+    });
+
+    it('should ignore forceCharge outside charge mode', () => {
+        const idle = generateStorageModelWriteFromBatteryControl({
+            batteryControl: {
+                targetPowerWatts: 0,
+                mode: 'idle',
+                forceCharge: true,
+            },
+            storageModel: baseStorageModel,
+        });
+        expect(idle.InWRte).toBe(0);
+        expect(idle.OutWRte).toBe(0);
+
+        const discharge = generateStorageModelWriteFromBatteryControl({
+            batteryControl: {
+                targetPowerWatts: -3000,
+                mode: 'discharge',
+                forceCharge: true,
+            },
+            storageModel: baseStorageModel,
+        });
+        expect(discharge.InWRte).toBe(-837);
+        expect(discharge.OutWRte).toBe(837);
+    });
+
     it('should convert discharge watts to OutWRte percentage with scale factor', () => {
         // 3000W out of 35840W = 8.37%
         // With SF=-2, raw = 8.37 * 100 = 837
