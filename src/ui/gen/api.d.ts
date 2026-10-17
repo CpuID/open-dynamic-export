@@ -2189,6 +2189,7 @@ export interface components {
             };
         };
         BatteryControlConfiguration: {
+            forceCharge?: boolean;
             /** Format: double */
             dischargeRatePercent?: number;
             /** Format: double */
