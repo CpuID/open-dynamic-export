@@ -96,6 +96,7 @@ Enable battery power flow control in `config.json`:
 | `batteryGridChargingEnabled`  | boolean | false     | Allow charging battery from grid when solar is insufficient                                                                                                  |
 | `batteryGridChargingMaxWatts` | number  | -         | Maximum power drawn from grid for battery charging (watts)                                                                                                   |
 | `batteryExportTargetWatts`    | number  | 0         | Site-level export target (watts). Battery discharges to fill the gap between PV surplus and this target. See [Battery Export Target](#battery-export-target) |
+| `batteryImportTargetWatts`    | number  | 0         | Commanded battery charge (watts): PV surplus first, then grid when grid charging is enabled. See [Battery Import Target](#battery-import-target)             |
 
 ### Priority Modes
 
@@ -166,7 +167,10 @@ The project automatically uses the battery to offset grid imports, reducing ener
 
 ### Grid Charging
 
-When `batteryGridChargingEnabled` is `true` and the battery is below its target SoC, the system charges the battery from the grid when solar power is insufficient:
+When `batteryGridChargingEnabled` is `true`, the battery can charge from the grid when solar power is insufficient. Two things can drive it:
+
+- **A commanded charge** (`batteryImportTargetWatts` > 0): the battery charges at the commanded rate, PV surplus first, with the grid topping up the rest. See [Battery Import Target](#battery-import-target).
+- **The target SoC**: when there is no PV surplus and the battery is below its target SoC, it charges from the grid:
 
 ```
 Grid charging behavior:
@@ -177,6 +181,10 @@ Grid charging behavior:
 ```
 
 Grid charging respects the site import limit (`opModImpLimW` / `importLimitWatts`): the charge power is capped so that total site import (house load + battery charging) does not exceed the import limit.
+
+A charge that includes a grid component is written to the inverter as a **forced** charge (see [SunSpec Integration](#sunspec-integration)). A charge limit on its own only _permits_ charging, and the inverter's own logic decides where the energy comes from, usually PV only. A PV-only charge is still written as a limit, so a passing cloud does not turn into grid import.
+
+The inverter itself must also allow charging from the grid. Its storage model reports this as `ChaGriSet`: `1` (`GRID`) means allowed, `0` (`PV`) means PV only. ODE does not change this setting.
 
 > [!IMPORTANT]
 > When grid charging is active, the battery does **not** discharge to reduce imports. These are conflicting goals — one pulls power from the grid to charge, the other discharges to reduce grid pull. When the battery reaches its target SoC, it holds idle until the external controller disables grid charging.
@@ -241,6 +249,38 @@ In addition to export, the battery always covers self-consumption (reducing grid
     "batteryGridChargingEnabled": true,
     "batteryGridChargingMaxWatts": 3000,
     "batterySocTargetPercent": 100
+}
+```
+
+### Battery Import Target
+
+`batteryImportTargetWatts` commands a battery charge rate. It is the twin of `batteryExportTargetWatts` (in `setpoints.fixed` it is `importTargetWatts`). The battery charges from PV surplus first, and tops up from the grid only when `batteryGridChargingEnabled` is `true`:
+
+```
+PV to battery   = min(PV surplus, batteryImportTargetWatts, batteryChargeMaxWatts)
+Grid to battery = min(batteryImportTargetWatts - PV to battery,
+                      batteryGridChargingMaxWatts, import limit headroom,
+                      batteryChargeMaxWatts - PV to battery)
+```
+
+| Scenario            | PV surplus | Target | Grid charging | Battery charge                 |
+| ------------------- | ---------- | ------ | ------------- | ------------------------------ |
+| PV exceeds target   | 5000W      | 3000W  | either        | 3000W from PV, 2000W exported  |
+| PV partially covers | 1000W      | 3000W  | enabled       | 1000W PV + 2000W grid (forced) |
+| PV partially covers | 1000W      | 3000W  | disabled      | 1000W PV                       |
+| No PV (night)       | 0W         | 3000W  | enabled       | 3000W grid (forced)            |
+| No PV (night)       | 0W         | 3000W  | disabled      | 0W: holds, does not discharge  |
+
+A commanded charge takes precedence over self-consumption: the grid covers house load while the battery charges, instead of the battery discharging to cover it. Charging stops at `batterySocMaxPercent`.
+
+**Example: MQTT-commanded charge in a cheap window**
+
+```jsonc
+// Charge at 5kW, up to 3kW of it from the grid
+{
+    "batteryImportTargetWatts": 5000,
+    "batteryGridChargingEnabled": true,
+    "batteryGridChargingMaxWatts": 3000,
 }
 ```
 
@@ -311,10 +351,17 @@ This allows integration with:
 Battery control uses **SunSpec Model 124** (Battery Storage):
 
 - Automatic storage capability detection on first poll
-- Writes to `StorCtl_Mod` register (control mode bitfield)
-- Sets charge/discharge power targets (`WChaGra`, `WDisChaGra`)
-- Optional percentage rates (`InWRte`, `OutWRte`)
-- 60-second safety timeout for all commands
+- Always writes `StorCtl_Mod = 3` (limit both charge and discharge), so the inverter does not charge or discharge on its own while ODE is in control
+- `InWRte` and `OutWRte` (percent of `WChaMax`) define a power **window**: the battery may run at any rate from `OutWRte` of discharge up to `InWRte` of charge. A negative value turns the opposite bound into a minimum, which is how a charge or discharge is forced
+- `WChaGra` / `WDisChaGra` are ramp rates, not power targets, and are passed through unchanged
+- `InOutWRte_RvrtTms = 60`: if ODE stops writing, the inverter reverts to its own control after 60 seconds
+
+| Mode                         | `InWRte` | `OutWRte` | Effect                                                   |
+| ---------------------------- | -------- | --------- | -------------------------------------------------------- |
+| Charge, PV only              | X        | 0         | Charging allowed up to X; the inverter picks the source  |
+| Charge with a grid component | X        | -X        | Forced charge at X; the shortfall is drawn from the grid |
+| Discharge                    | -X       | X         | Forced discharge at X (needed for battery export)        |
+| Idle                         | 0        | 0         | Battery held at 0W                                       |
 
 **Supported Inverters:**
 
@@ -367,6 +414,13 @@ Key log messages for diagnosing battery issues:
 - Check `batterySocMaxPercent` - battery may be at maximum SoC
 - Verify `batteryChargeMaxWatts` is not too restrictive
 - Check if export limit is consuming all available power (use `battery_first` mode)
+
+#### Battery Not Charging From the Grid
+
+- Check the active setpoints in the `Set inverter control values` log: `batteryGridChargingEnabled` must be `true` and `batteryGridChargingMaxWatts` above 0
+- Check the import limit (`opModImpLimW` / `importLimitWatts`) leaves headroom above the house load
+- In the `Wrote battery controls` log, a charge with a grid component has a negative `OutWRte`. `OutWRte: 0` means ODE calculated a PV-only charge
+- Check `ChaGriSet` in the same log line is `1` (`GRID`). If it is `0` (`PV`), enable battery charging from the grid in the inverter's own settings
 
 #### Battery Not Discharging When Importing
 

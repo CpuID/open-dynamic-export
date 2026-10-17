@@ -580,10 +580,9 @@ export function generateStorageModelWriteFromBatteryControl({
             );
             // Mirror of the discharge case below. InWRte=X, OutWRte=0 is the
             // window [0 discharge, X charge]: it only ALLOWS charging, and the
-            // inverter's own self-consumption logic then charges from PV
-            // surplus alone — a grid top-up never happens (observed on a
-            // Fronius Gen24: commanded 8800 W, ChaGriSet=1, charge tracked PV
-            // surplus exactly and the site never imported for it).
+            // inverter only charges from its own PV — a grid top-up never
+            // happens (observed on a Fronius Gen24, even with grid charging
+            // enabled and ChaGriSet=1).
             // A negative OutWRte means "minimum charge rate", so OutWRte =
             // -InWRte collapses the window to a fixed point and forces the
             // charge, drawing the shortfall from the grid. Only do this when

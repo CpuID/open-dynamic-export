@@ -132,6 +132,7 @@ The MQTT topic must contain a JSON message that meets the following schema
     // batteryGridChargingEnabled: boolean (optional)
     // batteryGridChargingMaxWatts: number (optional)
     // batteryExportTargetWatts: number (optional) - site-level export target in watts; battery fills what PV doesn't cover
+    // batteryImportTargetWatts: number (optional) - commanded battery charge in watts; PV surplus first, then grid when batteryGridChargingEnabled
 }
 ```
 
